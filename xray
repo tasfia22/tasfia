@@ -1,0 +1,130 @@
+from keras.models import Sequential
+from keras.layers import Conv2D
+from keras.layers import MaxPooling2D
+from keras.layers import Flatten
+from keras.layers import Dense
+from keras import backend as K
+from sklearn.metrics import classification_report, confusion_matrix
+
+
+classifier = Sequential()
+
+
+classifier.add(Conv2D(32, (3, 3), input_shape = (224, 224, 3), activation = 'relu'))
+classifier.add(MaxPooling2D(pool_size = (2, 2)))
+
+classifier.add(Conv2D(64, (3, 3), activation = 'relu'))
+classifier.add(MaxPooling2D(pool_size = (2, 2)))
+
+classifier.add(Conv2D(64, (3, 3), activation = 'relu'))
+classifier.add(MaxPooling2D(pool_size = (2, 2)))
+
+#classifier.add(Conv2D(64, (3, 3), activation = 'relu'))
+#classifier.add(MaxPooling2D(pool_size = (2, 2)))
+
+#classifier.add(Conv2D(64, (3, 3), activation = 'relu'))
+#classifier.add(MaxPooling2D(pool_size = (2, 2)))
+
+
+classifier.add(Flatten())
+
+
+classifier.add(Dense(units = 128, activation = 'relu'))
+classifier.add(Dense(units = 1, activation = 'sigmoid'))
+
+
+
+def recall_m(y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+def precision_m(y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+def f1_m(y_true, y_pred):
+    precision = precision_m(y_true, y_pred)
+    recall = recall_m(y_true, y_pred)
+    return 2*((precision*recall)/(precision+recall+K.epsilon()))
+
+
+
+classifier.compile(optimizer = 'adam', loss = 'binary_crossentropy', metrics = ['accuracy',f1_m,precision_m,recall_m])
+
+
+from keras.preprocessing.image import ImageDataGenerator
+
+train_datagen = ImageDataGenerator(
+        rescale=1./255,
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True)
+
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+training_set = train_datagen.flow_from_directory('C:/Users/ASUS/Music/subfinal/dataset/train',
+                                                 target_size=(224, 224),
+                                                 batch_size=200,
+                                                 class_mode='binary')
+
+test_set = test_datagen.flow_from_directory('C:/Users/ASUS/Music/subfinal/dataset/test',
+                                            target_size=(224, 224),
+                                            batch_size=100,                                            
+                                            class_mode='binary')
+
+
+history=classifier.fit_generator(
+                                training_set,
+                                steps_per_epoch=21,
+                                epochs=15,
+                                validation_data=test_set,
+                                validation_steps=10)
+
+
+
+
+scores = classifier.evaluate_generator(test_set, 1000) #1000 testing images
+print("Accuracy = ", scores[1]*100)
+
+
+yhat=classifier.predict_generator(test_set, steps = test_set.n // test_set.batch_size)
+
+true_labels = test_set.labels.tolist()
+pred_labels = [1 if p > 0.5 else 0 for p in yhat.ravel()]
+
+
+tn, fp, fn, tp = confusion_matrix(true_labels, pred_labels).ravel()
+print("True-Positive: %3i   Fasle-Positive: %3i\nFalse-Negatve: %3i   True-Negative: %3i\n" % (tp, fp, fn, tn))
+
+
+print(
+    classification_report(
+        true_labels,
+        pred_labels,
+        target_names=['pneumonia', 'normal']))
+
+
+
+from sklearn.metrics import roc_curve
+
+fpr_keras, tpr_keras, thresholds_keras = roc_curve(test_set.classes, yhat[0:4216])
+
+from sklearn.metrics import auc
+auc_keras = auc(fpr_keras, tpr_keras)
+
+import matplotlib.pyplot as plt
+plt.figure(1)
+plt.plot([0, 1], [0, 1], 'k--')
+plt.plot(fpr_keras, tpr_keras, label='Keras (area = {:.3f})'.format(auc_keras))
+
+plt.xlabel('False positive rate')
+plt.ylabel('True positive rate')
+plt.title('ROC curve')
+plt.legend(loc='best')
+plt.show()
+
+
